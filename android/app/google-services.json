@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "368967984403",
+    "project_id": "hotelordertakingapp",
+    "storage_bucket": "hotelordertakingapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:368967984403:android:69d9ca7ae4fac485b426e6",
+        "android_client_info": {
+          "package_name": "com.example.hotel_order_taking_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBLDmh5L5KG0xpBTr56yAs-WaXoIOP8SGo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
