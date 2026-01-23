@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:hotel_order_taking_app/Model/menu_item.dart';
 import 'package:hotel_order_taking_app/Provider/order_provider.dart';
 import 'package:hotel_order_taking_app/services/firestore_service.dart';
 import 'package:hotel_order_taking_app/Screen/order_summary_screen.dart';
+import 'package:hotel_order_taking_app/Utils/Constants.dart';
 
 class MenuSearchModal extends StatefulWidget {
   const MenuSearchModal({Key? key}) : super(key: key);
@@ -21,6 +23,14 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
   String _selectedCategory = 'All';
   bool _isSearching = false;
   bool _isLoadingCategories = true;
+  Timer? _debounceTimer;
+
+  final Map<String, String> _categoryHindiNames = {
+    'All': 'सभी',
+    'Breads': 'रोटी',
+    'Main Course': 'मुख्य व्यंजन',
+    'Starters': 'स्टार्टर',
+  };
 
   @override
   void initState() {
@@ -31,6 +41,7 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
   @override
   void dispose() {
     _searchController.dispose();
+    _debounceTimer?.cancel();
     super.dispose();
   }
 
@@ -41,7 +52,6 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
         _categories = ['All', ...categories];
         _isLoadingCategories = false;
       });
-      // Load all items initially
       _loadCategoryItems('All');
     } catch (e) {
       print('Error loading categories: $e');
@@ -49,65 +59,56 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
     }
   }
 
-  // Enhanced _searchMenuItems method for menu_search_model.dart
+  void _onSearchChanged(String query) {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(Duration(milliseconds: 300), () {
+      _searchMenuItems(query);
+    });
+  }
 
   Future<void> _searchMenuItems(String query) async {
-    print("🔄 Searching for: $query in category: $_selectedCategory");
-
     if (query.isEmpty) {
       setState(() {
         _searchResults = [];
         _isSearching = false;
       });
-      // Load category items when search is cleared
       _loadCategoryItems(_selectedCategory);
       return;
     }
 
-    setState(() => _isSearching = true);
+    setState(() {
+      _isSearching = true;
+      _selectedCategory = 'All';
+    });
+
     try {
-      print("📡 Calling Firestore search...");
-
-      // Get all search results first
       final allResults = await _firestoreService.searchMenuItems(query);
-      print("✅ Total search results: ${allResults.length} items");
-
-      // Filter results based on selected category
-      List<MenuItem> filteredResults;
-      if (_selectedCategory == 'All') {
-        filteredResults = allResults;
-      } else {
-        filteredResults = allResults
-            .where((item) =>
-                item.category.toLowerCase() == _selectedCategory.toLowerCase())
-            .toList();
-        print(
-            "✅ Filtered to ${filteredResults.length} items in $_selectedCategory");
-      }
+      print(
+          "🔍 Search complete: Found ${allResults.length} results for '$query'");
 
       setState(() {
-        _searchResults = filteredResults;
+        _searchResults = allResults;
         _isSearching = false;
       });
     } catch (e) {
       print("❌ Search error: $e");
       setState(() => _isSearching = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error searching: $e')),
+        SnackBar(
+          content: Text('Error searching: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
 
-// Enhanced category loading to clear search when switching categories
   Future<void> _loadCategoryItems(String category) async {
-    // Clear search when switching categories
     if (_searchController.text.isNotEmpty) {
       _searchController.clear();
       _searchResults = [];
     }
 
     if (category == 'All') {
-      // Load all items
       final allItems = await _firestoreService.getMenuItems().first;
       setState(() {
         _categoryItems = allItems;
@@ -132,6 +133,16 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
   void _showSpecialInstructionsDialog(
       MenuItem item, OrderProvider orderProvider) {
     final notesController = TextEditingController();
+
+    // ✅ Get the existing item if it's already in the order
+    final existingItemIndex = orderProvider.orderItems
+        .indexWhere((orderItem) => orderItem.code == item.code);
+
+    // ✅ If item exists, pre-fill the notes
+    if (existingItemIndex != -1) {
+      notesController.text = orderProvider.orderItems[existingItemIndex].notes;
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -139,11 +150,16 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
-            Icon(Icons.note_add, color: Color(0xFFD4AF37)),
+            Icon(Icons.note_add, color: AppColors.buttonBackground),
             SizedBox(width: 12),
-            Text('Special Instructions',
-                style: TextStyle(
-                    color: Color(0xFF1A1A2E), fontWeight: FontWeight.bold)),
+            Text(
+              existingItemIndex != -1
+                  ? 'Update Instructions'
+                  : 'Special Instructions',
+              style: TextStyle(
+                  color: AppColors.drawerBackground,
+                  fontWeight: FontWeight.bold),
+            ),
           ],
         ),
         content: Column(
@@ -157,13 +173,16 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
             TextField(
               controller: notesController,
               decoration: InputDecoration(
-                labelText: 'Add instructions',
+                labelText: existingItemIndex != -1
+                    ? 'Update instructions'
+                    : 'Add instructions',
                 hintText: 'e.g., No garlic, extra spicy',
                 border:
                     OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Color(0xFFD4AF37), width: 2),
+                  borderSide:
+                      BorderSide(color: AppColors.buttonBackground, width: 2),
                 ),
                 filled: true,
                 fillColor: Color(0xFFFFFDF7),
@@ -180,23 +199,38 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
           ),
           ElevatedButton(
             onPressed: () {
-              orderProvider.addItem(item, notes: notesController.text);
+              if (existingItemIndex != -1) {
+                // ✅ UPDATE existing item's notes
+                orderProvider.updateItemNotes(
+                    existingItemIndex, notesController.text);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Note updated for ${item.name}'),
+                    backgroundColor: Colors.blue,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              } else {
+                // ✅ ADD new item with notes
+                orderProvider.addItem(item, notes: notesController.text);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('${item.name} added with note'),
+                    backgroundColor: Colors.green,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
               Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('${item.name} added with note'),
-                  backgroundColor: Colors.green,
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Color(0xFFD4AF37),
-              foregroundColor: Color(0xFF1A1A2E),
+              backgroundColor: AppColors.buttonBackground,
+              foregroundColor: AppColors.buttonText,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
             ),
-            child: Text('ADD', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text(existingItemIndex != -1 ? 'UPDATE' : 'ADD',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -211,11 +245,11 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border:
-            Border.all(color: Color(0xFFD4AF37).withOpacity(0.3), width: 1.5),
+        border: Border.all(
+            color: AppColors.buttonBackground.withOpacity(0.3), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Color(0xFFD4AF37).withOpacity(0.2),
+            color: AppColors.buttonBackground.withOpacity(0.2),
             blurRadius: 10,
             offset: Offset(0, 4),
           ),
@@ -235,11 +269,12 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    Color(0xFFD4AF37).withOpacity(0.3),
-                    Color(0xFFFFD700).withOpacity(0.2)
+                    AppColors.buttonBackground.withOpacity(0.3),
+                    AppColors.buttonBackground.withOpacity(0.2)
                   ],
                 ),
-                border: Border.all(color: Color(0xFFD4AF37).withOpacity(0.3)),
+                border: Border.all(
+                    color: AppColors.buttonBackground.withOpacity(0.3)),
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
@@ -250,13 +285,13 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
                         errorBuilder: (_, __, ___) => Icon(
                           Icons.restaurant,
                           size: 35,
-                          color: Color(0xFFB8860B),
+                          color: AppColors.buttonBackground,
                         ),
                       )
                     : Icon(
                         Icons.restaurant_menu,
                         size: 35,
-                        color: Color(0xFFB8860B),
+                        color: AppColors.buttonBackground,
                       ),
               ),
             ),
@@ -268,9 +303,9 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
                   Text(
                     item.name,
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 15,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A1A2E),
+                      color: Colors.black,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -279,67 +314,101 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
                   Text(
                     'Code: ${item.code}',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 14,
                       color: Colors.grey[600],
                     ),
                   ),
-                  SizedBox(height: 6),
+                  SizedBox(height: 4),
                   Text(
                     '₹${item.price.toStringAsFixed(2)}',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFFB8860B),
+                      color: AppColors.drawerBackground,
                     ),
                   ),
                 ],
               ),
             ),
-            if (itemInOrder > 0) ...[
-              Container(
-                decoration: BoxDecoration(
-                  color: Color(0xFFD4AF37).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Color(0xFFD4AF37)),
-                ),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: () =>
-                          orderProvider.decreaseQuantity(item.code.toString()),
-                      icon: Icon(Icons.remove,
-                          size: 18, color: Color(0xFF1A1A2E)),
-                      padding: EdgeInsets.all(6),
-                      constraints: BoxConstraints(),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 8),
-                      child: Text(
-                        '$itemInOrder',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF1A1A2E),
+            SizedBox(width: 6),
+            SizedBox(
+              width: 90,
+              child: itemInOrder > 0
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            color: AppColors.buttonBackground.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: AppColors.buttonBackground,
+                              width: 1.2,
+                            ),
+                          ),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 2), // 🔥 Reduced size
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Minus Button
+                              InkWell(
+                                onTap: () => orderProvider
+                                    .decreaseQuantity(item.code.toString()),
+                                child: Padding(
+                                  padding:
+                                      EdgeInsets.all(5), // 🔥 Smaller tap area
+                                  child: Icon(Icons.remove,
+                                      size: 18,
+                                      color: AppColors
+                                          .drawerBackground), // Smaller icon
+                                ),
+                              ),
+
+                              // Quantity Number
+                              Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 4),
+                                child: Text(
+                                  '$itemInOrder',
+                                  style: TextStyle(
+                                    fontSize: 14, // 🔥 Reduced text size
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.drawerBackground,
+                                  ),
+                                ),
+                              ),
+
+                              // Plus Button
+                              InkWell(
+                                onTap: () => orderProvider
+                                    .increaseQuantity(item.code.toString()),
+                                child: Padding(
+                                  padding: EdgeInsets.all(5),
+                                  child: Icon(Icons.add,
+                                      size: 18,
+                                      color: AppColors
+                                          .drawerBackground), // Smaller icon
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () =>
-                          orderProvider.increaseQuantity(item.code.toString()),
-                      icon: Icon(Icons.add, size: 18, color: Color(0xFF1A1A2E)),
-                      padding: EdgeInsets.all(6),
-                      constraints: BoxConstraints(),
-                    ),
-                  ],
-                ),
-              ),
-            ] else ...[
-              Column(
-                children: [
-                  SizedBox(
-                    width: 70,
-                    height: 32,
-                    child: ElevatedButton(
+                        SizedBox(height: 4),
+                        GestureDetector(
+                          onTap: () => _showSpecialInstructionsDialog(
+                              item, orderProvider),
+                          child: Text(
+                            'Add note',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppColors.drawerBackground,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ElevatedButton(
                       onPressed: () {
                         orderProvider.addItem(item);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -352,9 +421,10 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
                         );
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFFD4AF37),
-                        foregroundColor: Color(0xFF1A1A2E),
-                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        backgroundColor: AppColors.buttonBackground,
+                        foregroundColor: AppColors.buttonText,
+                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        minimumSize: Size(70, 32),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -363,28 +433,12 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
                       child: Text(
                         'ADD',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
-                  ),
-                  SizedBox(height: 4),
-                  GestureDetector(
-                    onTap: () =>
-                        _showSpecialInstructionsDialog(item, orderProvider),
-                    child: Text(
-                      'Add note',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: Color(0xFFB8860B),
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ],
         ),
       ),
@@ -395,34 +449,64 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
     if (_isLoadingCategories) {
       return Center(
         child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
+          valueColor: AlwaysStoppedAnimation<Color>(AppColors.buttonBackground),
         ),
       );
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: _categories.map((category) {
+    return SizedBox(
+      height: 65,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.symmetric(horizontal: 8),
+        itemCount: _categories.length,
+        itemBuilder: (context, index) {
+          final category = _categories[index];
           final isSelected = _selectedCategory == category;
+          final hindiName = _categoryHindiNames[category] ?? category;
+
           return Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4),
+            padding: EdgeInsets.only(right: 10),
             child: FilterChip(
               selected: isSelected,
-              label: Text(
-                category,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: isSelected ? Color(0xFF1A1A2E) : Colors.grey[700],
-                ),
+              showCheckmark: false,
+              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              label: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    category,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: isSelected
+                          ? AppColors.drawerBackground
+                          : Colors.grey[700],
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    hindiName,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: isSelected
+                          ? AppColors.drawerBackground
+                          : Colors.grey[600],
+                    ),
+                  ),
+                ],
               ),
               backgroundColor: Colors.white,
-              selectedColor: Color(0xFFD4AF37),
-              checkmarkColor: Color(0xFF1A1A2E),
-              shape: StadiumBorder(
+              selectedColor: AppColors.buttonBackground,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
                 side: BorderSide(
-                  color: isSelected ? Color(0xFFD4AF37) : Colors.grey[300]!,
+                  color: isSelected
+                      ? AppColors.buttonBackground
+                      : Colors.grey[300]!,
+                  width: 1.5,
                 ),
               ),
               onSelected: (selected) {
@@ -430,7 +514,7 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
               },
             ),
           );
-        }).toList(),
+        },
       ),
     );
   }
@@ -447,7 +531,8 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4AF37)),
+              valueColor:
+                  AlwaysStoppedAnimation<Color>(AppColors.buttonBackground),
             ),
             SizedBox(height: 16),
             Text(
@@ -480,13 +565,13 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
               Container(
                 padding: EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: Color(0xFFD4AF37).withOpacity(0.1),
+                  color: AppColors.buttonBackground.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.search_off,
                   size: 64,
-                  color: Color(0xFFB8860B).withOpacity(0.5),
+                  color: AppColors.buttonBackground.withOpacity(0.5),
                 ),
               ),
               SizedBox(height: 16),
@@ -504,7 +589,6 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
       }
     }
 
-    // Category browsing view
     if (!hasSearchQuery) {
       if (hasCategoryItems) {
         return ListView.builder(
@@ -523,13 +607,13 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
               Container(
                 padding: EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: Color(0xFFD4AF37).withOpacity(0.1),
+                  color: AppColors.buttonBackground.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.restaurant_menu,
                   size: 64,
-                  color: Color(0xFFB8860B).withOpacity(0.5),
+                  color: AppColors.buttonBackground.withOpacity(0.5),
                 ),
               ),
               SizedBox(height: 16),
@@ -578,13 +662,12 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
           ],
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               padding: EdgeInsets.all(16),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF1A1A2E), Color(0xFF2C2C3E)],
-                ),
+                color: AppColors.drawerBackground,
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(24),
                   topRight: Radius.circular(24),
@@ -595,27 +678,29 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
                   Container(
                     padding: EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Color(0xFFD4AF37),
+                      color: AppColors.primaryGold,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(Icons.restaurant_menu,
-                        color: Color(0xFF1A1A2E), size: 24),
+                        color: Colors.black, size: 24),
                   ),
                   SizedBox(width: 12),
                   Text(
                     'Browse Menu',
                     style: TextStyle(
-                      color: Color(0xFFD4AF37),
+                      color: AppColors.primaryGold,
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   Spacer(),
                   IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: Icon(Icons.close, color: Color(0xFFD4AF37)),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(0.1),
+                    onPressed: () {
+                      Navigator.pop(context);
+                    },
+                    icon: Icon(
+                      Icons.close,
+                      color: AppColors.primaryGold,
                     ),
                   ),
                 ],
@@ -625,16 +710,16 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
               padding: EdgeInsets.all(16),
               child: TextField(
                 controller: _searchController,
-                autofocus: true,
                 decoration: InputDecoration(
                   hintText: 'Search by name or code',
-                  prefixIcon: Icon(Icons.search, color: Color(0xFFD4AF37)),
+                  prefixIcon:
+                      Icon(Icons.search, color: AppColors.buttonBackground),
                   suffixIcon: _searchController.text.isNotEmpty
                       ? IconButton(
                           icon: Icon(Icons.clear, color: Colors.grey),
                           onPressed: () {
                             _searchController.clear();
-                            _searchMenuItems('');
+                            _onSearchChanged('');
                           },
                         )
                       : null,
@@ -643,22 +728,22 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide:
-                        BorderSide(color: Color(0xFFD4AF37).withOpacity(0.3)),
+                    borderSide: BorderSide(
+                        color: AppColors.buttonBackground.withOpacity(0.3)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(color: Color(0xFFD4AF37), width: 2),
+                    borderSide:
+                        BorderSide(color: AppColors.buttonBackground, width: 2),
                   ),
                   filled: true,
                   fillColor: Colors.white,
                 ),
-                onChanged: _searchMenuItems,
+                onChanged: _onSearchChanged,
               ),
             ),
             Container(
-              height: 50,
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: EdgeInsets.symmetric(vertical: 8),
               child: _buildCategoryChips(),
             ),
             Expanded(
@@ -668,9 +753,7 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
               Container(
                 padding: EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF1A1A2E), Color(0xFF0F0F1E)],
-                  ),
+                  color: AppColors.drawerBackground,
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.2),
@@ -695,8 +778,8 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
                           Text(
                             '${orderProvider.itemCount} items',
                             style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white70,
+                              fontSize: 14,
+                              color: Colors.white,
                             ),
                           ),
                           Text(
@@ -704,24 +787,30 @@ class _MenuSearchModalState extends State<MenuSearchModal> {
                             style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFFD4AF37),
+                              color: Colors.white,
                             ),
                           ),
                         ],
                       ),
                       ElevatedButton(
                         onPressed: () {
-                          Navigator.pop(context);
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => OrderSummaryScreen(),
-                            ),
-                          );
+                          Navigator.pop(context); // Close menu modal
+
+                          Future.delayed(Duration(milliseconds: 100), () {
+                            if (context.mounted) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const OrderSummaryScreen(),
+                                ),
+                              );
+                            }
+                          });
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Color(0xFFD4AF37),
-                          foregroundColor: Color(0xFF1A1A2E),
+                          backgroundColor: AppColors.buttonBackground,
+                          foregroundColor: AppColors.buttonText,
                           padding: EdgeInsets.symmetric(
                               horizontal: 28, vertical: 14),
                           shape: RoundedRectangleBorder(

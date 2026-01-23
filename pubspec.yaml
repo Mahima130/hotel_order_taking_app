@@ -33,6 +33,7 @@ dependencies:
 
   # UI
   cupertino_icons: ^1.0.8
+  shared_preferences: ^2.2.0
 
 dev_dependencies:
   flutter_test:
@@ -41,3 +42,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Add this section
+  assets:
+    - assets/images/background.jpg
+    # Or to include all images in the folder:
+    # - assets/images/

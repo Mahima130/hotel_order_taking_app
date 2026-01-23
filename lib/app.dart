@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:hotel_order_taking_app/Screen/home_screen.dart';
 import 'package:hotel_order_taking_app/Screen/order_summary_screen.dart';
 import 'package:hotel_order_taking_app/Screen/qr_screen.dart';
-// Assuming you named it qr_scanner_screen.dart
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -45,13 +44,13 @@ class MyApp extends StatelessWidget {
       initialRoute: '/',
       routes: {
         // The main ordering screen (Table selection, Menu search)
-        '/': (context) => HomeScreen(),
+        '/': (context) => const HomeScreen(),
 
         // The screen to review and confirm the current order
-        '/order-summary': (context) => OrderSummaryScreen(),
+        '/order-summary': (context) => const OrderSummaryScreen(),
 
         // The screen for scanning table QR codes
-        '/qr-scanner': (context) => QrScannerScreen(),
+        '/qr-scanner': (context) => const QrScannerScreen(),
       },
     );
   }

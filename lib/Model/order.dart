@@ -3,13 +3,16 @@ import 'package:hotel_order_taking_app/Model/order_item.dart';
 
 class Order {
   final String id;
-  final int tableNo; // ✅ keep as int
+  final int tableNo;
   final String tableType;
   final String phoneNo;
   final DateTime time;
   final double totalPrice;
   final String status;
   final List<OrderItem> items;
+  final String? orderType;
+  final String? location;
+  final int? orderCount; // ✅ NEW - For displaying order count per table
 
   Order({
     required this.id,
@@ -20,6 +23,10 @@ class Order {
     required this.totalPrice,
     required this.items,
     this.status = 'active',
+    this.orderType,
+    this.location,
+    //this.orderCount,
+    this.orderCount = 1, // ✅ NEW
   });
 
   /// ✅ From Firestore document
@@ -28,8 +35,7 @@ class Order {
       id: docId,
       tableNo: (data['tableNo'] is int)
           ? data['tableNo'] as int
-          : int.tryParse(data['tableNo'].toString()) ??
-              0, // ensures int even if stored as string
+          : int.tryParse(data['tableNo'].toString()) ?? 0,
       tableType: data['tableType'] ?? '',
       phoneNo: data['phoneNo'] ?? '',
       time: (data['time'] as Timestamp).toDate(),
@@ -39,6 +45,9 @@ class Order {
               ?.map((item) => OrderItem.fromMap(item as Map<String, dynamic>))
               .toList() ??
           [],
+      orderType: data['orderType'] ?? 'Regular',
+      location: data['location'],
+      orderCount: (data['orderCount'] ?? 1) as int,
     );
   }
 
@@ -52,6 +61,9 @@ class Order {
       'totalPrice': totalPrice,
       'status': status,
       'items': items.map((item) => item.toMap()).toList(),
+      'orderType': orderType,
+      'location': location,
+      // orderCount is not saved to Firestore
     };
   }
 
@@ -65,6 +77,9 @@ class Order {
     double? totalPrice,
     String? status,
     List<OrderItem>? items,
+    String? orderType,
+    String? location,
+    int? orderCount, // ✅ NEW
   }) {
     return Order(
       id: id ?? this.id,
@@ -75,6 +90,9 @@ class Order {
       totalPrice: totalPrice ?? this.totalPrice,
       status: status ?? this.status,
       items: items ?? this.items,
+      orderType: orderType ?? this.orderType,
+      location: location ?? this.location,
+      orderCount: orderCount ?? this.orderCount, // ✅ NEW
     );
   }
 
@@ -83,10 +101,16 @@ class Order {
     return items.fold(0.0, (sum, item) => sum + item.totalPrice);
   }
 
+  /// ✅ Get number of unique items
   int get itemCount => items.length;
+
+  /// ✅ Get total quantity of all items (sum of quantities)
+  int get totalQuantity {
+    return items.fold(0, (sum, item) => sum + item.quantity);
+  }
 
   @override
   String toString() {
-    return 'Order(id: $id, tableNo: $tableNo, tableType: $tableType, phoneNo: $phoneNo, status: $status, totalPrice: $totalPrice, items: ${items.length})';
+    return 'Order(id: $id, tableNo: $tableNo, tableType: $tableType, phoneNo: $phoneNo, status: $status, totalPrice: $totalPrice, items: ${items.length}, orderType: $orderType, location: $location, orderCount: $orderCount)';
   }
 }

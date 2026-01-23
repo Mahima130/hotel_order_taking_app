@@ -3,8 +3,8 @@ class OrderItem {
   final String name;
   int quantity;
   final double price;
-  final String notes;
-  final String category; // ✅ Added
+  String notes; // ✅ Changed from 'final' to mutable
+  final String category;
 
   OrderItem({
     required this.code,
@@ -12,27 +12,30 @@ class OrderItem {
     required this.quantity,
     required this.price,
     this.notes = '',
-    this.category = '', // ✅ default empty if not given
+    this.category = '',
   });
 
   double get totalPrice => price * quantity;
 
+  // ✅ FIXED: Use 'itemName' to match Firebase structure
   Map<String, dynamic> toMap() {
     return {
       'code': code,
-      'name': name,
-      'qty': quantity,
-      'price': price,
+      'itemName': name, // ✅ Changed from 'name' to 'itemName'
+      'quantity': quantity, // ✅ Changed from 'qty' to 'quantity'
+      'amount': totalPrice, // ✅ Changed from 'price' to 'amount'
+      'price': price, // ✅ Keep individual price too
       'notes': notes,
       'category': category,
+      'status': 'pending', // ✅ Added status field
     };
   }
 
   factory OrderItem.fromMap(Map<String, dynamic> map) {
     return OrderItem(
       code: map['code'] ?? 0,
-      name: map['name'] ?? '',
-      quantity: map['qty'] ?? 0,
+      name: map['itemName'] ?? map['name'] ?? '', // ✅ Handle both field names
+      quantity: map['quantity'] ?? map['qty'] ?? 0, // ✅ Handle both
       price: (map['price'] ?? 0).toDouble(),
       notes: map['notes'] ?? '',
       category: map['category'] ?? '',
@@ -55,5 +58,10 @@ class OrderItem {
       notes: notes ?? this.notes,
       category: category ?? this.category,
     );
+  }
+
+  @override
+  String toString() {
+    return 'OrderItem(code: $code, name: $name, qty: $quantity, price: $price, notes: "$notes")';
   }
 }
